@@ -87,8 +87,8 @@ class DBOTypeHierachies(config: SliceConfig) extends TypeHierarchies with DBpedi
     }
 
     def fromClassPath = {
-      val bzipStream = getClass.getResourceAsStream("dbpedia_2015-10.nt.gz")
-      new CompressorStreamFactory().createCompressorInputStream(GZIP, bzipStream)
+      val gzStream = getClass.getResourceAsStream("dbpedia_2015-10.nt.gz")
+      new CompressorStreamFactory().createCompressorInputStream(GZIP, gzStream)
     }
 
     def hasCompressionExtension = config.externalDBpediaOntologyPath.fold(false) { path =>
