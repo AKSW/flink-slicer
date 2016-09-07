@@ -22,8 +22,8 @@ trait TriplesWindowedIO {
 
   def serializeTripleLines(triples: Iterator[Triple]): Iterator[String]
 
-  val READ_CHUNK_SIZE = 1000000
-  val SERIALISATION_CHUNK_SIZE = 1000000
+  val READ_CHUNK_SIZE = 1000
+  val SERIALISATION_CHUNK_SIZE = 1000
 }
 
 object RDFManagerTriplesIO extends TriplesWindowedIO with Serializable with Logging {
