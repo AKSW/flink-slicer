@@ -2,12 +2,12 @@ package de.uni.leipzig.sdw.dbpedia.slicing.util
 
 import java.io.File
 import java.lang.Iterable
-import java.nio.file.{Path, Paths}
 
 import com.hp.hpl.jena.graph.Triple
 import com.hp.hpl.jena.vocabulary.RDF
 import de.uni.leipzig.sdw.dbpedia.slicing.config.SliceConfig
 import de.uni.leipzig.sdw.dbpedia.slicing.rdf.{RDFManagerTriplesIO, TriplesWindowedIO}
+import grizzled.slf4j.Logging
 import org.apache.flink.api.common.functions.MapPartitionFunction
 import org.apache.flink.api.scala._
 import org.apache.flink.core.fs.FileSystem.WriteMode
@@ -17,6 +17,8 @@ import org.apache.jena.riot.RDFLanguages
 import scala.collection.convert.decorateAll._
 import scala.collection.convert.wrapAll._
 import scala.language.postfixOps
+import scalax.file.Path
+import scalax.file.defaultfs.DefaultPath
 
 
 /**
@@ -26,11 +28,11 @@ import scala.language.postfixOps
 
 object SliceOps {
 
-  def readTripleDataset(filePath: String, env: ExecutionEnvironment, tio: TriplesWindowedIO) = {
+  def readTripleDataset(filePath: Path, env: ExecutionEnvironment, tio: TriplesWindowedIO) = {
 
-    val basename = Paths.get(filePath).getFileName
+    val basename = filePath.segments.last
 
-    val jenaLangStr = RDFLanguages.filenameToLang(basename.toString, RDFLanguages.NTRIPLES).getName
+    val jenaLangStr = RDFLanguages.filenameToLang(basename, RDFLanguages.NTRIPLES).getName
 
     val mapFunction = new MapPartitionFunction[String, Triple] {
 
@@ -39,18 +41,18 @@ object SliceOps {
       }
     }
 
-    env.readTextFile(filePath).mapPartition(mapFunction)
+    env.readTextFile(filePath.path).mapPartition(mapFunction)
   }
 
   def filteredInstances(instanceTypes: DataSet[Triple], subClassIRIs: Set[IRIStr]) = instanceTypes.filter { triple =>
     (subClassIRIs contains triple.getObject.getURI) && (triple.getPredicate.getURI == typePropertyStr)
   } map { _.getSubject.getURI } distinct
 
-  def writeTripleDataset(tds: DataSet[Triple], filePath: String, tio: TriplesWindowedIO,
+  def writeTripleDataset(tds: DataSet[Triple], targetPath: DefaultPath, tio: TriplesWindowedIO,
                          writeMode: WriteMode = WriteMode.OVERWRITE,
                          parallelism: Int = 1) = {
 
-    val sink = tds.mapPartition(tio.serializeTripleLines _).writeAsText(filePath, writeMode)
+    val sink = tds.mapPartition(tio.serializeTripleLines _).writeAsText(targetPath.path, writeMode)
 
     if(parallelism > 0) {
       sink.setParallelism(parallelism)
@@ -62,28 +64,36 @@ object SliceOps {
   protected val typePropertyStr = RDF.`type`.getURI
 }
 
-class SliceOps(env: ExecutionEnvironment, config: SliceConfig, tio: TriplesWindowedIO) {
+class SliceOps(env: ExecutionEnvironment, config: SliceConfig, tio: TriplesWindowedIO) extends Logging {
 
   import SliceOps._
 
   lazy val combinedFacts: DataSet[Triple] =
-    readTripleDataset(dumpFilePathStr(config.combinedStatementsFilename), env, tio)
+    readTripleDataset(config.combinedStatementsFile, env, tio)
 
   lazy val instanceTypes: DataSet[Triple] =
-    readTripleDataset(dumpFilePathStr(config.instanceTypesFilename), env, tio)
+    readTripleDataset(config.instanceTypesFile, env, tio)
 
   def selectViaSubClasses(subClassIRIs: Set[IRIStr]): IRIDataset =
     SliceOps.filteredInstances(instanceTypes, subClassIRIs)
 
   def factsForSubjects(subjects: IRIDataset): DataSet[Triple] = {
+
     val join = subjects.joinWithHuge(combinedFacts).where(identity(_)).equalTo { _.getSubject.getURI }
 
     join apply { (_, triple) => triple }
   }
 
-  def mentionedEntitiesFacts(statements: DataSet[Triple], mentionCandidates: IRIDataset): DataSet[Triple] = {
-    val join = statements.filter(_.getObject.isURI) join mentionCandidates where { _.getObject.getURI } equalTo { identity(_) }
+  def mentionedEntitiesFacts(statements: DataSet[Triple]): DataSet[Triple] = {
 
+    val mentionedInstances = statements.map(_.getObject).filter(_.isURI).map(_.getURI)
+
+    factsForSubjects(mentionedInstances)
+  }
+
+  def mentionedEntitiesFacts(statements: DataSet[Triple], mentionCandidates: IRIDataset): DataSet[Triple] = {
+
+    val join = statements.filter(_.getObject.isURI) join mentionCandidates where { _.getObject.getURI } equalTo { identity(_) }
 
     val mentionedInstances = join apply { (_, subjUri) => subjUri } distinct
 
@@ -99,15 +109,14 @@ class SliceOps(env: ExecutionEnvironment, config: SliceConfig, tio: TriplesWindo
     }
   }
 
-  def writeTripleDataset(tds: DataSet[Triple], filePath: String,
+  def writeTripleDataset(tds: DataSet[Triple], targetPath: DefaultPath,
                          writeMode: WriteMode = WriteMode.OVERWRITE,
-                         parallelism: Int = 1) = SliceOps.writeTripleDataset(tds, filePath, tio, writeMode, parallelism)
+                         parallelism: Int = 1) = SliceOps.writeTripleDataset(tds, targetPath, tio, writeMode, parallelism)
 
 
-  protected def dumpFilePathStr(fileName: String) =
-    s"${config.dbpediaDumpDir}${File.separator}$fileName"
+  def sinkPath(contentDesc: String, distDesc: String = config.distributionDescriptionInfix,
+               ext:String = "nt") = {
 
-  def sinkPathStr(contentDesc: String, distDesc: String = config.distributionDescriptionInfix,
-                            ext:String = "nt") =
-    s"${config.sliceDestinationDir}${File.separator}$contentDesc$distDesc.$ext"
+    config.sliceDestinationDir / s"$contentDesc$distDesc.$ext"
+  }
 }

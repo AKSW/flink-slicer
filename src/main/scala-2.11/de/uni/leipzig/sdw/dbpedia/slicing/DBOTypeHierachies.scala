@@ -7,20 +7,21 @@ package de.uni.leipzig.sdw.dbpedia.slicing
 
 
 import java.io.InputStream
-import java.nio.file.Files
 
 import com.hp.hpl.jena.graph.{Factory, Graph}
 import com.hp.hpl.jena.query.Query
 import de.uni.leipzig.sdw.dbpedia.slicing.config.SliceConfig
 import de.uni.leipzig.sdw.dbpedia.slicing.rdf.JenaBanana
-import de.uni.leipzig.sdw.dbpedia.slicing.util.{DebugDurations, IRIStr, _}
+import de.uni.leipzig.sdw.dbpedia.slicing.util.{DebugDurations, IRIStr}
 import grizzled.slf4j.Logging
 import org.apache.commons.compress.compressors.CompressorStreamFactory
 import org.apache.commons.compress.compressors.CompressorStreamFactory._
 import org.apache.jena.riot.{RDFDataMgr, RDFLanguages}
 import org.w3.banana.Prefix
+import resource.ManagedResource
 
 import scala.language.postfixOps
+import scalax.io.{Resource => IOResource}
 
 
 /**
@@ -42,33 +43,12 @@ trait DBpediaOntologyQuerying extends JenaBanana with DebugDurations with Loggin
 
   def subClassesQuery(classURI: String) = qu(s"SELECT ?class { ?class rdfs:subClassOf* $classURI }")
 
-  lazy val companyClassesQuery = subClassesQuery("dbo:Company")
-
-  lazy val eventClassesQuery = subClassesQuery("dbo:Event")
-
-  lazy val personClassesQuery = subClassesQuery("dbo:Person")
-
-  lazy val placeClassesQuery = subClassesQuery("dbo:Place")
-
-  lazy val relevantSuperClasses = Seq(
-    "http://dbpedia.org/ontology/Company",
-    "http://dbpedia.org/ontology/Event",
-    "http://dbpedia.org/ontology/Person",
-    "http://dbpedia.org/ontology/Place"
-  )
-
   protected[sdw] def qu(quStr: String) = sparqlOps.parseSelect(quStr.stripMargin, prefixes).get
 }
 
 trait TypeHierarchies {
 
-  def eventSubClassIRIs: Set[IRIStr]
-
-  def companySubClassIRIs: Set[IRIStr]
-
-  def personSubClasseIRIs: Set[IRIStr]
-
-  def placeSubClassIRIs: Set[IRIStr]
+  def subClassIRIs(ancestor: IRIStr): Set[IRIStr] 
 }
 
 
@@ -86,25 +66,28 @@ class DBOTypeHierachies(config: SliceConfig) extends TypeHierarchies with DBpedi
       ontGraph
     }
 
-    def fromClassPath = {
-      val gzStream = getClass.getResourceAsStream("dbpedia_2015-10.nt.gz")
-      new CompressorStreamFactory().createCompressorInputStream(GZIP, gzStream)
+    def fromClassPath: ManagedResource[InputStream] = {
+      def gzStream = getClass.getResourceAsStream("dbpedia_2015-10.nt.gz")
+      def decompressionStream = new CompressorStreamFactory().createCompressorInputStream(GZIP, gzStream)
+      IOResource.fromInputStream(decompressionStream)
     }
 
     def hasCompressionExtension = config.externalDBpediaOntologyPath.fold(false) { path =>
       val compressedRegex = """\.(gz)|(gzip)|(bz2)|(bzip2)$""".r
 
-      compressedRegex.findFirstIn(path.toPath.getFileName.toString).isDefined
+      compressedRegex.findFirstIn(path.segments.last).isDefined
     }
 
-    def ontStream: InputStream = config.externalDBpediaOntologyPath.fold[InputStream](fromClassPath) { path =>
-      val inputStream = Files.newInputStream(path.toPath)
-      if (hasCompressionExtension) {
-        new CompressorStreamFactory().createCompressorInputStream(inputStream)
-      } else inputStream
+    def ontStream = config.externalDBpediaOntologyPath.fold[ManagedResource[InputStream]](fromClassPath) { path =>
+
+      path.inputStream().map { is =>
+        if (hasCompressionExtension) {
+          new CompressorStreamFactory().createCompressorInputStream(is)
+        } else is
+      }
     }
 
-    ontStream.loanTo(parseStream)
+    ontStream.acquireAndGet(parseStream)
   }
 
   protected[sdw] def classSolutions(qu: Query): Set[IRIStr] = {
@@ -113,13 +96,7 @@ class DBOTypeHierachies(config: SliceConfig) extends TypeHierarchies with DBpedi
     } get
   }
 
-  lazy val eventSubClassIRIs = classSolutions(eventClassesQuery)
-
-  lazy val companySubClassIRIs = classSolutions(companyClassesQuery)
-
-  lazy val personSubClasseIRIs = classSolutions(personClassesQuery)
-
-  lazy val placeSubClassIRIs = classSolutions(placeClassesQuery)
+  override def subClassIRIs(ancestor: IRIStr): Set[IRIStr] = classSolutions(subClassesQuery(ancestor))
 }
 
 

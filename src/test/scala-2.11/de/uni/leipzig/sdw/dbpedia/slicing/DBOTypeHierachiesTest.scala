@@ -13,9 +13,9 @@ import org.scalatest.{FlatSpec, FunSuite, Matchers}
 class DBOTypeHierachiesTest extends FlatSpec with Matchers{
 
   val configStub = new SliceConfig {
-    override def sliceDestinationDir: File = ???
+    override def sliceDestinationDir = ???
 
-    override def dbpediaDumpDir: Path = ???
+    override def dbpediaDumpDir = ???
   }
 
   new DBOTypeHierachies(configStub) {
@@ -24,7 +24,8 @@ class DBOTypeHierachiesTest extends FlatSpec with Matchers{
     "SPARQL query components for the DBpedia ontology" should
       "retrieve some sub-classes for dbo:Company, dbo:Event, dbo:Person, dbo:Place" in {
 
-      Set(companySubClassIRIs, eventSubClassIRIs, personSubClasseIRIs, personSubClasseIRIs) foreach {
+      Set(subClassIRIs("dbo:Company"), subClassIRIs("dbo:Event"), subClassIRIs("dbo:Organisation"),
+        subClassIRIs("dbo:Person"), subClassIRIs("dbo:Place")) foreach {
         _ should not be empty
       }
     }

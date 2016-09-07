@@ -17,7 +17,7 @@ lazy val root = (project in file(".")).settings(
 lazy val scalaVer = "2.11.7"
 lazy val sbtVersion = "0.13.9"
 lazy val scalazVersion= "7.1.+"
-lazy val flinkVersion = "1.0.+"
+lazy val flinkVersion = "1.1.1"
 lazy val sesameVersion = "2.8.+"
 lazy val bananaRdfVersion = "0.8.+"
 
@@ -30,11 +30,12 @@ lazy val libDeps = Seq(
     ),
   "org.scalaz" %% "scalaz-core" % scalazVersion,
   "org.scalaz" %% "scalaz-effect" % scalazVersion,
-  "org.apache.flink" %% "flink-scala" % flinkVersion % "provided",
-  "org.apache.flink" %% "flink-streaming-scala" % flinkVersion % "provided",
-  "org.apache.flink" %% "flink-clients" % flinkVersion % "provided",
+  "org.apache.flink" %% "flink-scala" % flinkVersion /*% "provided"*/,
+  "org.apache.flink" %% "flink-streaming-scala" % flinkVersion /*% "provided"*/,
+  "org.apache.flink" %% "flink-clients" % flinkVersion /*% "provided"*/,
   "org.clapper" %% "grizzled-slf4j" % "1.+",
   "org.apache.commons" % "commons-compress" % "1.+",
   "com.google.guava" % "guava" % "19.+",
+  "com.github.scala-incubator.io" %% "scala-io-file" % "0.4.+",
   "org.scalatest" %% "scalatest" % "2.2.+" % Test
 )
